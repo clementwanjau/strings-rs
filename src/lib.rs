@@ -154,7 +154,7 @@ pub fn analyze(
             should_save_workspace,
             dead_data,
         )
-        .expect(format!("Failed to analyze sample: {}", path_to_sample).as_str());
+        .unwrap_or_else(|_| panic!("Failed to analyze sample: {}", path_to_sample));
 
         info!("Finished loading workspace.");
         results.metadata.imagebase = get_imagebase(workspace.clone());
@@ -184,9 +184,7 @@ pub fn analyze(
             results.strings.stack_strings = extract_stackstrings(
                 workspace.clone(),
                 selected_functions.as_ref().cloned().unwrap(),
-                MIN_STRING_LENGTH,
-                Verbosity::DEFAULT,
-                true,
+                MIN_STRING_LENGTH
             )
             .iter()
             .map(|x| x.string.clone())
@@ -292,11 +290,9 @@ pub fn load_workspace(
     should_save_workspace: bool,
     dead_data: Vec<(String, i32)>,
 ) -> Result<VivWorkspace> {
-    if !vec!["sc32", "sc64"].contains(&format) {
-        if !is_supported_file_type(sample_path) {
-            return Err(FlossError::WorkspaceLoadError("FLOSS currently supports the following formats for string decoding and stackstrings: PE\n
-                You can analyze shellcode using the --format sc32|sc64 switch. See the help (-h) for more information.".to_string()));
-        }
+    if !vec!["sc32", "sc64"].contains(&format) && !is_supported_file_type(sample_path) {
+        return Err(FlossError::WorkspaceLoadError("FLOSS currently supports the following formats for string decoding and stackstrings: PE\n
+            You can analyze shellcode using the --format sc32|sc64 switch. See the help (-h) for more information.".to_string()));
     }
     if format == "auto"
         && (sample_path.ends_with(EXTENSIONS_SHELLCODE_32.0)

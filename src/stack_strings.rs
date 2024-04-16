@@ -1,15 +1,17 @@
+use std::collections::HashSet;
 use crate::{
     error::{FlossError, Result},
     results::{StackString, Verbosity},
     utils::make_emulator,
 };
-use log::info;
+use log::{debug, info, trace};
 use vivisect::{
     emulator::{GenericEmulator, OpCode, WorkspaceEmulator},
     memory::Memory,
     workspace::VivWorkspace,
 };
 use vivutils::{emulator_drivers::FullCoverageEmulatorDriver, function::Function};
+use crate::utils::{extract_strings, get_pointer_size};
 
 pub const MAX_STACK_SIZE: i32 = 0x10000;
 pub const MIN_NUMBER_OF_MOVS: i32 = 5;
@@ -150,9 +152,7 @@ pub fn get_basic_block_ends(mut vw: VivWorkspace) -> Vec<i32> {
 pub fn extract_stackstrings(
     vw: VivWorkspace,
     selected_functions: Vec<i32>,
-    min_length: i32,
-    verbosity: Verbosity,
-    disable_progress: bool,
+    min_length: i32
 ) -> Vec<StackString> {
     info!(
         "Extracting stack strings from {} functions.",
@@ -160,5 +160,28 @@ pub fn extract_stackstrings(
     );
     let mut stack_strings = Vec::new();
     let bb_ends = get_basic_block_ends(vw.clone());
+    for fva in selected_functions {
+        let mut seen: HashSet<String> = HashSet::new();
+        debug!("Extracting stack strings from function at 0x{:x}", fva);
+        let contexts = extract_call_contexts(vw.clone(), fva, bb_ends.clone());
+        for ctx in contexts {
+            trace!("Extracting stack strings at checkpoint: 0x{:x} stacksize: 0x{:x}", ctx.pc, ctx.init_sp - ctx.sp);
+            for stack_str in extract_strings(ctx.stack_memory.clone(), min_length, seen.iter().map(String::clone).collect()).unwrap() {
+                let frame_offset = (ctx.init_sp - ctx.sp) - stack_str.offset - get_pointer_size(vw.clone()).unwrap();
+                let stack_str = StackString {
+                    function: fva,
+                    string: stack_str.string.clone(),
+                    encoding: stack_str.encoding,
+                    program_counter: ctx.pc,
+                    stack_pointer: ctx.sp,
+                    original_stack_pointer: ctx.init_sp,
+                    offset: stack_str.offset,
+                    frame_offset,
+                };
+                seen.insert(stack_str.string.clone());
+                stack_strings.push(stack_str.clone());
+            }
+        }
+    }
     stack_strings
 }

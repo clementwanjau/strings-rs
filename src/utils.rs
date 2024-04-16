@@ -10,10 +10,12 @@ use lazy_static::lazy_static;
 use log::{debug, info, trace, warn};
 use regex::Regex;
 use std::{collections::HashMap, ops::Sub};
+use std::collections::HashSet;
 use vivisect::{
     emulator::{Emulator, GenericEmulator, WorkspaceEmulator},
     workspace::VivWorkspace,
 };
+use vivisect::memory::Memory;
 use vivutils::{
     function::Function,
     {get_function_name, is_library_function, is_thunk_function, remove_default_vivi_hooks},

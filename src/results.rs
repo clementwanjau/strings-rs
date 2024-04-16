@@ -21,20 +21,20 @@ impl Default for StringEncoding {
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Default)]
 pub struct StackString {
     /// the address of the function from which the stackstring was extracted
-    function: i32,
+    pub(crate) function: i32,
     /// the extracted string
     pub string: String,
-    encoding: StringEncoding,
+    pub(crate) encoding: StringEncoding,
     /// the program counter at the moment the string was extracted
-    program_counter: i32,
+    pub(crate) program_counter: i32,
     /// the stack counter at the moment the string was extracted
-    stack_pointer: i32,
+    pub(crate) stack_pointer: i32,
     /// the initial stack counter when the function was entered
-    original_stack_pointer: i32,
+    pub(crate) original_stack_pointer: i32,
     /// the offset into the stack from at which the stack string was found
-    offset: i32,
+    pub(crate) offset: i32,
     /// the offset from the function frame at which the stack string was found
-    frame_offset: i32,
+    pub(crate) frame_offset: i32,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Default)]
