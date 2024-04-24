@@ -46,7 +46,6 @@ use vivutils::{
     get_imagebase, get_shell_code_workspace, get_shell_code_workspace_from_file,
     register_flirt_signature_analyzers,
 };
-use crate::stack_strings::extract_stackstrings;
 
 /// The function to call to analyze a file.
 pub fn analyze(
