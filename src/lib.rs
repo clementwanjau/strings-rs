@@ -20,7 +20,7 @@ use self::{
         Analysis, DecodedString, Functions, Metadata, ResultDocument, StackString, StaticString,
         StringEncoding, StringOptions, TightString, Verbosity,
     },
-    stack_strings::extract_stackstrings,
+    stack_strings::extract_stack_strings,
     strings::{extract_ascii_unicode_strings, extract_tight_strings},
     utils::{
         append_unique, find_decoding_function_features, get_function_fvas,
@@ -46,6 +46,7 @@ use vivutils::{
     get_imagebase, get_shell_code_workspace, get_shell_code_workspace_from_file,
     register_flirt_signature_analyzers,
 };
+use crate::stack_strings::extract_stackstrings;
 
 /// The function to call to analyze a file.
 pub fn analyze(
@@ -181,10 +182,8 @@ pub fn analyze(
             if results.analysis.enable_tight_strings {
                 // selected_functions = get_fun
             }
-            results.strings.stack_strings = extract_stackstrings(
-                workspace.clone(),
-                selected_functions.as_ref().cloned().unwrap(),
-                MIN_STRING_LENGTH
+            results.strings.stack_strings = extract_stack_strings(
+               path_to_sample
             )
             .iter()
             .map(|x| x.string.clone())
