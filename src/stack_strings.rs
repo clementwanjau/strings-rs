@@ -1,15 +1,21 @@
+use std::collections::HashSet;
+use capstone::{Capstone, RegId};
+use capstone::arch::ArchOperand;
+use capstone::prelude::BuildsCapstone;
 use crate::{
     error::{FlossError, Result},
     results::{StackString, Verbosity},
     utils::make_emulator,
 };
-use log::info;
+use log::{debug, info, trace};
 use vivisect::{
     emulator::{GenericEmulator, OpCode, WorkspaceEmulator},
     memory::Memory,
     workspace::VivWorkspace,
 };
 use vivutils::{emulator_drivers::FullCoverageEmulatorDriver, function::Function};
+use crate::results::StringEncoding;
+use crate::utils::{extract_strings, get_pointer_size};
 
 pub const MAX_STACK_SIZE: i32 = 0x10000;
 pub const MIN_NUMBER_OF_MOVS: i32 = 5;
@@ -132,7 +138,7 @@ pub fn get_basic_block_ends(mut vw: VivWorkspace) -> Vec<i32> {
     for funcva in vw.get_functions() {
         let mut f = Function::new(vw.clone(), funcva);
         for mut bb in f.basic_blocks() {
-            if bb.instructions().len() == 0 {
+            if bb.instructions().is_empty() {
                 continue;
             }
             index.push(bb.instructions().last().unwrap().va);
@@ -141,24 +147,89 @@ pub fn get_basic_block_ends(mut vw: VivWorkspace) -> Vec<i32> {
     index
 }
 
-/// Extracts the stackstrings from functions in the given workspace.
-/// :param vw: The vivisect_rs workspace from which to extract stackstrings.
-/// :param selected_functions: list of selected functions
-/// :param min_length: minimum string length
-/// :param verbosity: verbosity level
-/// :param disable_progress: do NOT show progress bar
-pub fn extract_stackstrings(
-    vw: VivWorkspace,
-    selected_functions: Vec<i32>,
-    min_length: i32,
-    verbosity: Verbosity,
-    disable_progress: bool,
-) -> Vec<StackString> {
-    info!(
-        "Extracting stack strings from {} functions.",
-        selected_functions.len()
-    );
+/// Extract stack strings from a function using emulation.
+pub fn extract_stack_strings(file_path: &str) -> Vec<StackString> {
     let mut stack_strings = Vec::new();
-    let bb_ends = get_basic_block_ends(vw.clone());
+    // Open a goblin reader for the file
+    let bytes = std::fs::read(file_path).unwrap();
+    if let Ok(elf) = goblin::elf::Elf::parse(&bytes) {
+        let arch  = match elf.header.e_machine {
+            goblin::elf::header::EM_386 => capstone::arch::x86::ArchMode::Mode32,
+            goblin::elf::header::EM_X86_64 => capstone::arch::x86::ArchMode::Mode64,
+            _ => panic!("Unsupported architecture"),
+        };
+        let disasm = Capstone::new()
+            .x86()
+            .mode(arch)
+            .detail(true).build().unwrap();
+        let pc = elf.header.e_entry;
+        let instructions = disasm.disasm_all(&bytes, pc).unwrap();
+        debug!("Found {} instructions", instructions.len());
+        for instruction in instructions.iter() {
+            // Analyze instruction mnemonics and operands
+            let mut potential_string = false;
+            let mut string_register = "";
+            let detail = disasm.insn_detail(&instruction).unwrap();
+            let ops = detail.arch_detail().operands();
+            match instruction.mnemonic() {
+                Some("mov") | Some("push") => {
+                    // Check if operand is a register
+                    string_register = match reg_names(&disasm, detail.regs_read()).as_str() {
+                        "esp" | "rsp" => {
+                            "stack_pointer"
+                        }
+                        _ => {
+                            continue
+                        }
+                    };
+                    potential_string = true;
+                }
+                _ => {}
+            }
+            if potential_string {
+                if let ArchOperand::X86Operand(operand) = &ops[1] {
+                    if let capstone::arch::x86::X86OperandType::Imm(imm) = operand.op_type {
+                        // Check if immediate value is a null-terminated string address
+                        let string_addr = (pc + instruction.address() + imm as u64) as usize;
+                        if is_null_terminated_string(&bytes[string_addr..]).unwrap() {
+                            println!("Potential stack string (register: {}, address: 0x{:x?}):", string_register, string_addr);
+                            // Print the string at the address (up to a certain limit to avoid garbage)
+                            let string_chars = &bytes[string_addr..]
+                                .iter()
+                                .take_while(|byte| **byte != 0)
+                                .map(|byte| *byte as char)
+                                .collect::<String>();
+                            let stack_string = StackString {
+                                function: pc as i32,
+                                string: string_chars.clone(),
+                                encoding: StringEncoding::UTF16LE,
+                                program_counter: pc as i32,
+                                stack_pointer: string_addr as i32,
+                                original_stack_pointer: 0,
+                                offset: 0,
+                                frame_offset: 0,
+                            };
+                            stack_strings.push(stack_string);
+                        }
+                    }
+                }
+            }
+        }
+    }
     stack_strings
+}
+
+fn reg_names(cs: &Capstone, regs: &[RegId]) -> String {
+    let names: Vec<String> = regs.iter().map(|&x| cs.reg_name(x).unwrap()).collect();
+    names.join(", ")
+}
+
+// Helper function to check for null-terminated string (replace with your implementation)
+fn is_null_terminated_string(data: &[u8]) -> std::result::Result<bool, &'static str> {
+    for byte in data {
+        if *byte == 0 {
+            return Ok(true);
+        }
+    }
+    Err("Not null-terminated")
 }
