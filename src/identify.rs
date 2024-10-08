@@ -8,15 +8,15 @@ pub fn get_function_meta(function: Function) -> HashMap<String, i32> {
     let mut map = HashMap::new();
     map.insert(
         "size".to_string(),
-        meta.get(&"Size".to_string()).unwrap().clone(),
+        *meta.get("Size").unwrap(),
     );
     map.insert(
         "block_count".to_string(),
-        meta.get(&"BlockCount".to_string()).unwrap().clone(),
+        *meta.get("BlockCount").unwrap(),
     );
     map.insert(
         "instruction_count".to_string(),
-        meta.get(&"InstructionCount".to_string()).unwrap().clone(),
+        *meta.get("InstructionCount").unwrap(),
     );
     map.insert("score".to_string(), 0);
 

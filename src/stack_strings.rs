@@ -1,13 +1,12 @@
-use std::collections::HashSet;
 use capstone::{Capstone, RegId};
 use capstone::arch::ArchOperand;
 use capstone::prelude::BuildsCapstone;
 use crate::{
     error::{FlossError, Result},
-    results::{StackString, Verbosity},
+    results::{StackString},
     utils::make_emulator,
 };
-use log::{debug, info, trace};
+use log::{debug};
 use vivisect::{
     emulator::{GenericEmulator, OpCode, WorkspaceEmulator},
     memory::Memory,
@@ -15,7 +14,6 @@ use vivisect::{
 };
 use vivutils::{emulator_drivers::FullCoverageEmulatorDriver, function::Function};
 use crate::results::StringEncoding;
-use crate::utils::{extract_strings, get_pointer_size};
 
 pub const MAX_STACK_SIZE: i32 = 0x10000;
 pub const MIN_NUMBER_OF_MOVS: i32 = 5;
@@ -79,7 +77,7 @@ impl StackStringContextMonitor {
         let stack_bottom = self._init_sp;
         let stack_size = stack_bottom - stack_top;
         if stack_size > MAX_STACK_SIZE {
-            Err(FlossError::StackSizeTooBig(stack_size)) as Result<CallContext>;
+            return Err(FlossError::StackSizeTooBig(stack_size));
         }
         let stack_buf = emu.read_memory(stack_top, stack_size).unwrap();
         let ctx = CallContext {
@@ -169,7 +167,7 @@ pub fn extract_stack_strings(file_path: &str) -> Vec<StackString> {
             // Analyze instruction mnemonics and operands
             let mut potential_string = false;
             let mut string_register = "";
-            let detail = disasm.insn_detail(&instruction).unwrap();
+            let detail = disasm.insn_detail(instruction).unwrap();
             let ops = detail.arch_detail().operands();
             match instruction.mnemonic() {
                 Some("mov") | Some("push") => {

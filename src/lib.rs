@@ -89,8 +89,8 @@ pub fn analyze(
     let mut results =
         ResultDocument::new(Metadata::new(path_to_sample, MIN_STRING_LENGTH), analysis);
     let time0 = Local::now();
-    let mut interim = Local::now();
-    let sample_size = fs::File::open(path_to_sample)
+    let mut _interim = Local::now();
+    let sample_size = File::open(path_to_sample)
         .unwrap()
         .read(&mut Vec::new())
         .unwrap() as i32;
@@ -107,8 +107,8 @@ pub fn analyze(
         // i8, i16, i32, i64, // Signed integers, -23, -278761
         // u8, u16, u32, u64 // Positive integers
         results.strings.static_strings = Vec::new();
-        results.metadata.runtime.static_strings = get_runtime_diff(interim);
-        interim = Local::now();
+        results.metadata.runtime.static_strings = get_runtime_diff(_interim);
+        _interim = Local::now();
     }
     if results.analysis.enable_decoded_strings
         || results.analysis.enable_stack_strings
@@ -166,8 +166,8 @@ pub fn analyze(
             selected_functions.as_ref().cloned().unwrap(),
         );
         results.analysis.functions.library = workspace.library_functions.len() as i32;
-        results.metadata.runtime.find_features = get_runtime_diff(interim);
-        interim = Local::now();
+        results.metadata.runtime.find_features = get_runtime_diff(_interim);
+        _interim = Local::now();
         trace!("Analysis summary:");
         for (key, val) in get_vivisect_meta_info(
             workspace.clone(),
@@ -189,8 +189,8 @@ pub fn analyze(
             .collect::<Vec<_>>();
             results.analysis.functions.analyzed_stack_strings =
                 selected_functions.as_ref().cloned().unwrap().len() as i32;
-            results.metadata.runtime.stack_strings = get_runtime_diff(interim);
-            interim = Local::now();
+            results.metadata.runtime.stack_strings = get_runtime_diff(_interim);
+            _interim = Local::now();
         }
         if results.analysis.enable_tight_strings {
             let tight_loop_functions =
@@ -203,8 +203,8 @@ pub fn analyze(
                 true,
             );
             results.analysis.functions.analyzed_tight_strings = tight_loop_functions.len() as i32;
-            results.metadata.runtime.tight_strings = get_runtime_diff(interim);
-            interim = Local::now();
+            results.metadata.runtime.tight_strings = get_runtime_diff(_interim);
+            _interim = Local::now();
         }
         if results.analysis.enable_decoded_strings {
             let top_functions = get_top_functions(decoding_function_features.clone(), 20);
@@ -288,7 +288,7 @@ pub fn load_workspace(
     should_save_workspace: bool,
     dead_data: Vec<(String, i32)>,
 ) -> Result<VivWorkspace> {
-    if !vec!["sc32", "sc64"].contains(&format) && !is_supported_file_type(sample_path) {
+    if !["sc32", "sc64"].contains(&format) && !is_supported_file_type(sample_path) {
         return Err(FlossError::WorkspaceLoadError("FLOSS currently supports the following formats for string decoding and stackstrings: PE\n
             You can analyze shellcode using the --format sc32|sc64 switch. See the help (-h) for more information.".to_string()));
     }
@@ -346,14 +346,12 @@ pub fn get_signatures(signature_path: &str) -> Result<Vec<String>> {
         paths.push(format!("{}", sigs_path.display()));
     } else if sigs_path.is_dir() {
         debug!("Reading signatures from directory {}", sigs_path.display());
-        for dir_entry in sigs_path.read_dir().expect("Error reading directory.") {
-            if let Ok(dir_entry) = dir_entry {
-                if dir_entry.path().clone().extension().unwrap() == "sig"
-                    || dir_entry.path().clone().extension().unwrap() == "pat"
-                    || dir_entry.path().clone().extension().unwrap() == "gz"
-                {
-                    paths.push(format!("{}", dir_entry.path().display()));
-                }
+        for dir_entry in sigs_path.read_dir().expect("Error reading directory.").flatten() {
+            if dir_entry.path().clone().extension().unwrap() == "sig"
+                || dir_entry.path().clone().extension().unwrap() == "pat"
+                || dir_entry.path().clone().extension().unwrap() == "gz"
+            {
+                paths.push(format!("{}", dir_entry.path().display()));
             }
         }
     }
