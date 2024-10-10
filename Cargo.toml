@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 vivutils = { git = "https://github.com/marirs/vivutils-rs", branch = "master" }
-vivisect = "0.1.11"
+vivisect = "0.1"
 log = "0.4.17"
 simple_logger = "5"
 thiserror = "1.0.37"
