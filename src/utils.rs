@@ -12,8 +12,10 @@ use regex::Regex;
 use std::{collections::HashMap, ops::Sub};
 use vivisect::{
     emulator::{Emulator, GenericEmulator, WorkspaceEmulator},
+    envi::memory::Memory,
     workspace::VivWorkspace,
 };
+use vivisect::envi::memory::MemoryDef;
 use vivutils::{
     function::Function,
     {get_function_name, is_library_function, is_thunk_function, remove_default_vivi_hooks},
@@ -93,10 +95,10 @@ pub fn make_emulator(mut workspace: VivWorkspace) -> GenericEmulator {
 }
 
 pub fn remove_stack_memory(mut emu: GenericEmulator) {
-    let memory_snap: Vec<(i32, i32, Vec<String>, i32)> = emu.get_memory_snap();
+    let memory_snap: Vec<MemoryDef> = emu.get_memory_snap();
     for _ in (-1..memory_snap.len() as i32 - 1).step_by(1) {
         let (_, _, info, _) = memory_snap.get(1).unwrap();
-        if info[3] == STACK_MEM_NAME {
+        if info.3 == Some(STACK_MEM_NAME.to_string()) {
             emu.set_memory_snap(memory_snap);
             *emu.get_stack_map_base() = None;
             return;
