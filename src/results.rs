@@ -6,16 +6,11 @@ use serde::Deserialize;
 use serde_json::from_str;
 use std::{collections::HashMap, fs, str::from_utf8};
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq)]
 pub enum StringEncoding {
     UTF16LE,
+    #[default]
     ASCII,
-}
-
-impl Default for StringEncoding {
-    fn default() -> Self {
-        StringEncoding::ASCII
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Default)]
@@ -56,17 +51,12 @@ pub struct TightString {
     pub(crate) frame_offset: i32,
 }
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq)]
 pub enum AddressType {
     STACK,
+    #[default]
     GLOBAL,
     HEAP,
-}
-
-impl Default for AddressType {
-    fn default() -> Self {
-        AddressType::GLOBAL
-    }
 }
 
 /// A decoding string and details about where it was found.
@@ -176,40 +166,40 @@ pub enum StringOptions {
 
 impl StringOptions {
     pub fn as_stack_string(&self) -> Option<StackString> {
-        return match self {
+        match self {
             StringOptions::StackString(t) => Some(t.clone()),
             _ => None,
-        };
+        }
     }
 
     pub fn as_decoded_string(&self) -> Option<DecodedString> {
-        return match self {
+        match self {
             StringOptions::DecodedString(t) => Some(t.clone()),
             _ => None,
-        };
+        }
     }
 
     pub fn as_tight_string(&self) -> Option<TightString> {
-        return match self {
+        match self {
             StringOptions::TightString(t) => Some(t.clone()),
             _ => None,
-        };
+        }
     }
 
     pub fn as_static_string(&self) -> Option<StaticString> {
-        return match self {
+        match self {
             StringOptions::StaticString(t) => Some(t.clone()),
             _ => None,
-        };
+        }
     }
 
     pub fn get_string(&self) -> String {
-        return match self {
+        match self {
             StringOptions::TightString(t) => t.clone().string,
             StringOptions::StackString(t) => t.clone().string,
             StringOptions::DecodedString(t) => t.clone().string,
             StringOptions::StaticString(t) => t.clone().string,
-        };
+        }
     }
 }
 
@@ -284,7 +274,7 @@ pub fn load(
     let mut results = read(sample);
     results.metadata.file_path = format!("{}\n{}", sample, results.metadata.file_path);
     check_set_string_types(results.clone(), analysis);
-    if functions.len() > 0 {
+    if !functions.is_empty() {
         filter_functions(results.clone(), functions);
     }
     if min_length > 0 {
@@ -330,8 +320,7 @@ pub fn filter_functions(mut results: ResultDocument, functions: Vec<i32>) {
         .strings
         .tight_strings
         .iter()
-        .filter(|function| functions.contains(&function.function))
-        .map(|tight_string| tight_string.clone())
+        .filter(|function| functions.contains(&function.function)).cloned()
         .collect::<Vec<_>>();
     // results.strings.decoded_strings = results.strings.decoded_strings.iter().filter(|function| functions.contains(&function.decoding_routine)).map(|decoded_string| decoded_string.clone()).collect::<Vec<_>>();
     results.analysis.functions.analyzed_stack_strings = results.strings.stack_strings.len() as i32;
@@ -345,28 +334,24 @@ pub fn filter_string_len(mut results: ResultDocument, min_len: i32) {
         .strings
         .stack_strings
         .iter()
-        .filter(|stack_string| stack_string.len() >= min_len as usize)
-        .map(|stack_string| stack_string.clone())
+        .filter(|stack_string| stack_string.len() >= min_len as usize).cloned()
         .collect::<Vec<_>>();
     results.strings.static_strings = results
         .strings
         .static_strings
         .iter()
-        .filter(|static_string| static_string.len() >= min_len as usize)
-        .map(|static_string| static_string.clone())
+        .filter(|static_string| static_string.len() >= min_len as usize).cloned()
         .collect::<Vec<_>>();
     results.strings.tight_strings = results
         .strings
         .tight_strings
         .iter()
-        .filter(|tight_string| tight_string.string.len() >= min_len as usize)
-        .map(|tight_string| tight_string.clone())
+        .filter(|tight_string| tight_string.string.len() >= min_len as usize).cloned()
         .collect::<Vec<_>>();
     results.strings.decoded_strings = results
         .strings
         .decoded_strings
         .iter()
-        .filter(|decoded_string| decoded_string.len() >= min_len as usize)
-        .map(|decoded_string| decoded_string.clone())
+        .filter(|decoded_string| decoded_string.len() >= min_len as usize).cloned()
         .collect::<Vec<_>>();
 }

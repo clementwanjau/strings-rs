@@ -10,12 +10,12 @@ use lazy_static::lazy_static;
 use log::{debug, info, trace, warn};
 use regex::Regex;
 use std::{collections::HashMap, ops::Sub};
-use std::collections::HashSet;
 use vivisect::{
     emulator::{Emulator, GenericEmulator, WorkspaceEmulator},
+    envi::memory::Memory,
     workspace::VivWorkspace,
 };
-use vivisect::memory::Memory;
+use vivisect::envi::memory::MemoryDef;
 use vivutils::{
     function::Function,
     {get_function_name, is_library_function, is_thunk_function, remove_default_vivi_hooks},
@@ -64,8 +64,8 @@ lazy_static! {
 }
 pub const FP_FILTER_PREFIX_1: &str = r"^.{0,2}[0pP]?[]^\[_\\V]A";
 pub const FP_FILTER_SUFFIX_1: &str = r"[0pP]?[VWU][A@]$|Tp$";
-pub const FP_FILTER_REP_CHARS_1: &str = r"([ -~])\1{3,}";
-pub const FP_FILTER_REP_CHARS_2: &str = r"([^% ]{4})\1{4,}";
+pub const FP_FILTER_REP_CHARS_1: &str = r"([ -~])\\1{3,}";
+pub const FP_FILTER_REP_CHARS_2: &str = r"([^% ]{4})\\1{4,}";
 pub const MAX_STRING_LENGTH_FILTER_STRICT: i32 = 6;
 // e.g. [ESC], [Alt], %d.dll
 pub const FP_FILTER_STRICT_INCLUDE: &str = r"^\[.*?]$|%[sd]";
@@ -77,6 +77,8 @@ pub const STACK_MEM_NAME: &str = "[stack]";
 pub const TIGHT_LOOP: i32 = 0;
 pub const KINDA_TIGHT_LOOP: i32 = 1;
 pub const TIGHT_FUNCTION: i32 = 2;
+
+pub type FunctionFva = HashMap<String, HashMap<String, i32>>;
 
 pub struct ExtendAction {}
 
@@ -93,10 +95,10 @@ pub fn make_emulator(mut workspace: VivWorkspace) -> GenericEmulator {
 }
 
 pub fn remove_stack_memory(mut emu: GenericEmulator) {
-    let memory_snap: Vec<(i32, i32, Vec<String>, i32)> = emu.get_memory_snap();
-    for i in (-1..memory_snap.len() as i32 - 1).step_by(1) {
+    let memory_snap: Vec<MemoryDef> = emu.get_memory_snap();
+    for _ in (-1..memory_snap.len() as i32 - 1).step_by(1) {
         let (_, _, info, _) = memory_snap.get(1).unwrap();
-        if info[3] == STACK_MEM_NAME {
+        if info.3 == Some(STACK_MEM_NAME.to_string()) {
             emu.set_memory_snap(memory_snap);
             *emu.get_stack_map_base() = None;
             return;
@@ -110,17 +112,16 @@ pub fn remove_stack_memory(mut emu: GenericEmulator) {
 pub fn dump_stack(mut emu: GenericEmulator) -> String {
     let esp: i32 = emu.get_stack_counter().unwrap();
     let mut stack_str = String::new();
-    let mut sp = String::new();
     for i in (-16..16).step_by(4) {
-        if i == 0 {
-            sp = "<= SP".to_string();
+        let sp = if i == 0 {
+            "<= SP".to_string()
         } else {
-            sp = format!("{}", -i);
-        }
+           format!("{}", -i)
+        };
         stack_str = format!(
             "{}\n0x{} - 0x{} {}",
             stack_str,
-            (esp - i),
+            esp - i,
             get_stack_value(emu.clone(), -i),
             sp
         );
@@ -131,17 +132,16 @@ pub fn dump_stack(mut emu: GenericEmulator) -> String {
 
 pub fn get_stack_value(mut emu: GenericEmulator, offset: i32) -> i32 {
     let stack_counter = emu.get_stack_counter().unwrap();
-    *emu.read_memory_format(stack_counter + offset, "<P")
-        .get(0)
+    *emu.read_memory_format(stack_counter + offset, "<P").first()
         .unwrap()
 }
 
 pub fn get_pointer_size(workspace: VivWorkspace) -> Result<i32> {
-    return match workspace.arch {
-        AMD64_MODULE => Ok(8),
-        I368_MODULE => Ok(4),
-        t => Err(FlossError::UnexpectedArchitecture(t as i32)),
-    };
+    match workspace.arch as i32 {
+        vivisect::constants::ARCH_AMD64  => Ok(8),
+        vivisect::constants::ARCH_I386 => Ok(4),
+        t => Err(FlossError::UnexpectedArchitecture(t)),
+    }
 }
 
 pub fn get_vivisect_meta_info(
@@ -152,13 +152,13 @@ pub fn get_vivisect_meta_info(
     let entry_points: Vec<i32> = workspace.get_entry_points();
     let mut info = HashMap::new();
     let mut basename: Option<String> = None;
-    if entry_points.len() > 0 {
-        basename = workspace.get_file_by_va(entry_points.get(0).unwrap().clone());
+    if !entry_points.is_empty() {
+        basename = workspace.get_file_by_va(*entry_points.first().unwrap());
     }
     let mut version = 0;
     let mut md5sum = 0;
     let mut baseva = 0;
-    if basename.is_some() && basename.as_ref().cloned().unwrap() != "blob".to_string() {
+    if basename.is_some() && basename.as_ref().cloned().unwrap() != *"blob" {
         version = workspace.get_file_meta(basename.as_ref().cloned().unwrap().as_str(), "Version");
         md5sum = workspace.get_file_meta(basename.as_ref().cloned().unwrap().as_str(), "md5sum");
         baseva = workspace.get_file_meta(basename.as_ref().cloned().unwrap().as_str(), "imagebase");
@@ -212,7 +212,7 @@ pub fn get_vivisect_meta_info(
         workspace.get_functions().len().to_string(),
     );
 
-    if selected_functions.len() > 0 {
+    if !selected_functions.is_empty() {
         let mut meta = Vec::new();
         for fva in selected_functions {
             let xrefs_to = workspace.get_xrefs_to(fva, Some(0)).len();
@@ -221,15 +221,14 @@ pub fn get_vivisect_meta_info(
             let instr_count: i32 = *function_meta.get("InstructionCount").unwrap();
             let block_count: i32 = *function_meta.get("BlockCount").unwrap();
             let size: i32 = *function_meta.get("Size").unwrap();
-            let score = decoding_function_features
+            let score = *decoding_function_features
                 .get(&fva)
                 .unwrap()
                 .get(&"meta".to_string())
                 .unwrap()
                 .clone()
-                .get(&"score".to_string())
-                .unwrap()
-                .clone();
+                .get("score")
+                .unwrap();
             meta.append(&mut vec![
                 fva,
                 score,
@@ -278,7 +277,7 @@ pub fn extract_strings(
             continue;
         }
         trace!("Strip {} -> {}", s.string, decoded_string);
-        if exclude.len() > 0 && exclude.contains(&decoded_string) {
+        if !exclude.is_empty() && exclude.contains(&decoded_string) {
             continue;
         }
         strings.push(StaticString {
@@ -308,14 +307,11 @@ pub fn strip_string(mut text: String) -> String {
     for regex in reg_patterns {
         text = regex.replace("", text).to_string();
     }
-    if text.len() as i32 <= MAX_STRING_LENGTH_FILTER_STRICT {
-        if !Regex::new(FP_FILTER_STRICT_INCLUDE)
+    if text.len() as i32 <= MAX_STRING_LENGTH_FILTER_STRICT && !Regex::new(FP_FILTER_STRICT_INCLUDE)
             .unwrap()
-            .is_match(text.as_str())
-        {
-            for regex in reg_patterns_2 {
-                text = regex.replace("", text).to_string();
-            }
+            .is_match(text.as_str()) {
+        for regex in reg_patterns_2 {
+            text = regex.replace("", text).to_string();
         }
     }
     text
@@ -326,13 +322,13 @@ pub fn is_string_type_enabled(
     disabled_types: Vec<StringOptions>,
     enabled_types: Vec<StringOptions>,
 ) -> bool {
-    return if disabled_types.len() > 0 {
+    if !disabled_types.is_empty() {
         !disabled_types.contains(&string_opt)
-    } else if enabled_types.len() > 0 {
+    } else if !enabled_types.is_empty() {
         enabled_types.contains(&string_opt)
     } else {
         true
-    };
+    }
 }
 
 pub fn get_runtime_diff(time: DateTime<Local>) -> i64 {
@@ -343,12 +339,12 @@ pub fn find_decoding_function_features(
     workspace: VivWorkspace,
     functions: Vec<i32>,
 ) -> (
-    HashMap<i32, HashMap<String, HashMap<String, i32>>>,
+    HashMap<i32, FunctionFva>,
     HashMap<i32, String>,
 ) {
     let mut decoding_candidate_functions = HashMap::new();
     let mut library_functions = HashMap::new();
-    for mut function in functions {
+    for function in functions {
         if is_thunk_function(workspace.clone(), function) {
             continue;
         }
@@ -370,13 +366,13 @@ pub fn find_decoding_function_features(
 }
 
 pub fn get_functions_with_tightloops(
-    functions: HashMap<i32, HashMap<String, HashMap<String, i32>>>,
+    functions: HashMap<i32, FunctionFva>,
 ) -> HashMap<i32, Vec<i32>> {
     get_functions_with_features(functions, vec![TIGHT_LOOP, KINDA_TIGHT_LOOP])
 }
 
 pub fn get_functions_with_features(
-    functions: HashMap<i32, HashMap<String, HashMap<String, i32>>>,
+    functions: HashMap<i32, FunctionFva>,
     features: Vec<i32>,
 ) -> HashMap<i32, Vec<i32>> {
     let mut functions_by_features = HashMap::new();
@@ -385,10 +381,10 @@ pub fn get_functions_with_features(
             .get("features")
             .get_or_insert(&HashMap::new())
             .iter()
-            .filter(|x| features.contains(&x.1))
+            .filter(|x| features.contains(x.1))
             .map(|x| *x.1)
             .collect::<Vec<_>>();
-        if func_features.len() > 0 {
+        if !func_features.is_empty() {
             functions_by_features.insert(fva, func_features);
         }
     }
@@ -396,9 +392,9 @@ pub fn get_functions_with_features(
 }
 
 pub fn get_top_functions(
-    mut functions: HashMap<i32, HashMap<String, HashMap<String, i32>>>,
+    functions: HashMap<i32, FunctionFva>,
     index: i32,
-) -> Vec<(i32, HashMap<String, HashMap<String, i32>>)> {
+) -> Vec<(i32, FunctionFva)> {
     let mut funcs = functions
         .iter()
         .map(|(fva, meta)| (*fva, meta.clone()))
@@ -423,7 +419,7 @@ pub fn get_top_functions(
 
 pub fn get_tight_function_fvas(
     functions: HashMap<i32, HashMap<String, HashMap<String, i32>>>,
-) -> Vec<(i32, HashMap<String, HashMap<String, i32>>)> {
+) -> Vec<(i32, FunctionFva)> {
     let mut tight_functions_fva = Vec::new();
     for (fva, function_data) in functions {
         let func_features = function_data
@@ -433,7 +429,7 @@ pub fn get_tight_function_fvas(
             .filter(|x| *x.1 == TIGHT_FUNCTION)
             .map(|x| *x.1)
             .collect::<Vec<_>>();
-        if func_features.len() > 0 {
+        if !func_features.is_empty() {
             tight_functions_fva.push((fva, function_data));
         }
     }
@@ -442,7 +438,7 @@ pub fn get_tight_function_fvas(
 
 pub fn append_unique(
     mut functions: Vec<i32>,
-    tight_funcs: Vec<(i32, HashMap<String, HashMap<String, i32>>)>,
+    tight_funcs: Vec<(i32, FunctionFva)>,
 ) -> Vec<i32> {
     for fva in tight_funcs {
         if !functions.contains(&fva.0) {
@@ -452,7 +448,7 @@ pub fn append_unique(
     functions
 }
 
-pub fn get_function_fvas(functions: Vec<(i32, HashMap<String, HashMap<String, i32>>)>) -> Vec<i32> {
+pub fn get_function_fvas(functions: Vec<(i32, FunctionFva)>) -> Vec<i32> {
     let fvas = functions.iter().map(|x| x.0).collect::<Vec<_>>();
     fvas
 }
