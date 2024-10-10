@@ -8,16 +8,16 @@ edition = "2021"
 
 [dependencies]
 vivutils = { git = "https://github.com/marirs/vivutils-rs", branch = "master" }
-vivisect = "0.1.12"
+vivisect = "0.1.13"
 log = "0.4.17"
-simple_logger = "4.0.0"
+simple_logger = "5.0.0"
 thiserror = "1.0.37"
 chrono = "0.4.23"
 serde_json = "1"
 serde = { version="1", features=["derive"] }
 regex = "1"
 lazy_static = "1"
-rust-strings = "0.3.0"
+rust-strings = "0.6.0"
 capstone = "0.12.0"
 goblin = "0.8.0"
 
