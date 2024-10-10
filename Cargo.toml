@@ -1,6 +1,6 @@
 [package]
 name = "strings"
-version = "0.0.2"
+version = "0.0.3"
 description = "Extract stack, static, decoded and tight strings from a given binary."
 authors = ["Marirs <marirs@gmail.com>"]
 keywords = ["strings", "static", "decoded", "stack", "tight"]
@@ -8,9 +8,10 @@ edition = "2021"
 
 [dependencies]
 vivutils = { git = "https://github.com/marirs/vivutils-rs", branch = "master" }
-vivisect = "0.1"
+
+vivisect = "0.1.13"
 log = "0.4.17"
-simple_logger = "5"
+simple_logger = "5.0.0"
 thiserror = "1.0.37"
 chrono = "0.4.23"
 serde_json = "1"
