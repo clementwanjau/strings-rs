@@ -15,5 +15,11 @@ pub enum FlossError {
     #[error("{0}")]
     InvalidAddress(String),
     #[error("{0}")]
-    IOError(String),
+    IOError(#[from] std::io::Error),
+    #[error("{0}")]
+    GoblinError(#[from] goblin::error::Error),
+    #[error("Could not find the stack segment")]
+    StackSegmentNotFound,
+    #[error("Could not find the signatures directory")]
+    MissingSignatures
 }

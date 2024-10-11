@@ -20,7 +20,6 @@ use self::{
         Analysis, DecodedString, Functions, Metadata, ResultDocument, StackString, StaticString,
         StringEncoding, StringOptions, TightString, Verbosity,
     },
-    stack_strings::extract_stack_strings,
     strings::{extract_ascii_unicode_strings, extract_tight_strings},
     utils::{
         append_unique, find_decoding_function_features, get_function_fvas,
@@ -46,6 +45,7 @@ use vivutils::{
     get_imagebase, get_shell_code_workspace, get_shell_code_workspace_from_file,
     register_flirt_signature_analyzers,
 };
+use crate::stack_strings::extract_stack_strings2;
 
 /// The function to call to analyze a file.
 pub fn analyze(
@@ -55,7 +55,7 @@ pub fn analyze(
     format: &str,
     signature_path: &str,
     should_save_workspace: bool,
-) -> ResultDocument {
+) -> Result<ResultDocument> {
     if is_string_type_enabled(
         StringOptions::StaticString(StaticString::default()),
         disabled_types.clone(),
@@ -181,9 +181,9 @@ pub fn analyze(
             if results.analysis.enable_tight_strings {
                 // selected_functions = get_fun
             }
-            results.strings.stack_strings = extract_stack_strings(
+            results.strings.stack_strings = extract_stack_strings2(
                path_to_sample
-            )
+            )?
             .iter()
             .map(|x| x.string.clone())
             .collect::<Vec<_>>();
@@ -227,7 +227,7 @@ pub fn analyze(
         "Finished execution after {} seconds.",
         results.metadata.runtime.total
     );
-    results.clone()
+    Ok(results.clone())
 }
 
 /// Given a workspace and an optional list of function addresses,
@@ -336,10 +336,7 @@ pub fn load_workspace(
 pub fn get_signatures(signature_path: &str) -> Result<Vec<String>> {
     let sigs_path = Path::new(signature_path);
     if !sigs_path.exists() {
-        return Err(FlossError::IOError(format!(
-            "Signatures path {} does not exist and cannot be accessed.",
-            sigs_path.display()
-        )));
+        return Err(FlossError::MissingSignatures);
     }
     let mut paths = Vec::new();
     if sigs_path.is_file() {

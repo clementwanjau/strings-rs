@@ -1,3 +1,4 @@
+use std::os::unix::prelude::FileExt;
 use capstone::{Capstone, RegId};
 use capstone::arch::ArchOperand;
 use capstone::prelude::BuildsCapstone;
@@ -6,7 +7,7 @@ use crate::{
     results::{StackString},
     utils::make_emulator,
 };
-use log::{debug};
+use log::{debug, info};
 use vivisect::{
     emulator::{GenericEmulator, OpCode, WorkspaceEmulator},
     memory::Memory,
@@ -215,6 +216,60 @@ pub fn extract_stack_strings(file_path: &str) -> Vec<StackString> {
         }
     }
     stack_strings
+}
+
+pub fn extract_stack_strings2(file_path: &str) -> Result<Vec<StackString>> {
+    info!("Extracting stack strings from {}", file_path);
+    let file = std::fs::File::open(file_path)?;
+    let bytes = std::fs::read(file_path)?;
+    let stack_base = match goblin::Object::parse(&bytes)? {
+        goblin::Object::Elf(elf_file) => {
+            let stack_segment = elf_file.program_headers.iter().find(|ph| (*ph).p_type == goblin::elf::program_header::PT_LOAD && (*ph).p_flags & goblin::elf::program_header::PF_X == goblin::elf::program_header::PF_X);
+            if let Some(stack_segment) = stack_segment {
+                stack_segment.p_vaddr + stack_segment.p_memsz
+            } else {
+                return Err(FlossError::StackSegmentNotFound);
+            }
+        },
+        goblin::Object::PE(pe_file) => {
+            let stack_section = pe_file.sections.iter().find(|section| section.name().unwrap_or_default() == ".text");
+            if let Some(stack_section) = stack_section {
+                (pe_file.image_base + stack_section.virtual_address as usize + stack_section.virtual_size as usize) as u64
+            } else {
+                return Err(FlossError::StackSegmentNotFound);
+            }
+        },
+        _ => return Err(FlossError::UnexpectedArchitecture(0)),
+    };
+    let mut stack_strings = Vec::new();
+    let mut stack_pointer = stack_base;
+    loop {
+        let mut string = String::new();
+        let mut buffer = [0u8; 1024];
+        let bytes_read = file.read_at(&mut buffer, stack_pointer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        for byte in buffer.iter().take_while(|b| **b != 0) {
+            string.push(*byte as char);
+        }
+        println!("Potential stack string at 0x{:x?}: {}", stack_pointer, string);
+        if !string.is_empty() && !string.starts_with("PE") && !string.starts_with("MZ") {
+            stack_strings.push(StackString {
+                function: 0,
+                string: string.clone(),
+                encoding: StringEncoding::ASCII,
+                program_counter: 0,
+                stack_pointer: stack_pointer as i32,
+                original_stack_pointer: 0,
+                offset: 0,
+                frame_offset: 0,
+            });
+        }
+        stack_pointer += string.len() as u64 + 1;
+    }
+    info!("Extracted {} stack strings", stack_strings.len());
+    Ok(stack_strings)
 }
 
 fn reg_names(cs: &Capstone, regs: &[RegId]) -> String {

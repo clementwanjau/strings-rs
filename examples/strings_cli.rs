@@ -4,17 +4,18 @@ use std::{
     env::{self, current_dir},
     process::exit,
 };
+use std::error::Error;
 use strings::analyze;
 
-pub fn main() {
-    init_with_level(Level::Debug).unwrap(); // Logging
+pub fn main() -> Result<(), Box<dyn Error>>{
+    init_with_level(Level::Info)?; // Logging
     let args: Vec<String> = env::args().collect();
     if args.len() == 1 {
         println!("please give filename to extract strings!");
         exit(1);
     }
     let file = args[1].to_owned();
-    let signature_path = format!("{}/assets/sigs", current_dir().unwrap().display());
+    let signature_path = format!("{}/assets/sigs", current_dir()?.display());
     // let signature_path = format!("");
     let results = analyze(
         &file,
@@ -23,7 +24,8 @@ pub fn main() {
         "sc32",
         signature_path.as_str(),
         false,
-    );
+    )?;
 
-    println!("{:?}", results);
+    println!("{:#?}", results);
+    Ok(())
 }
