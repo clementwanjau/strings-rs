@@ -1,6 +1,6 @@
 [package]
 name = "strings"
-version = "0.1.4"
+version = "0.1.5"
 description = "Extract stack, static, decoded and tight strings from a given binary."
 authors = ["Marirs <marirs@gmail.com>"]
 keywords = ["strings", "static", "decoded", "stack", "tight"]

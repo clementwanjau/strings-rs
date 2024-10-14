@@ -27,6 +27,7 @@ use self::{
         get_top_functions, get_vivisect_meta_info, is_string_type_enabled,
     },
 };
+use crate::stack_strings::extract_stack_strings2;
 use chrono::Local;
 use log::{debug, info, trace, warn};
 use rust_strings::{Encoding, FileConfig};
@@ -45,7 +46,6 @@ use vivutils::{
     get_imagebase, get_shell_code_workspace, get_shell_code_workspace_from_file,
     register_flirt_signature_analyzers,
 };
-use crate::stack_strings::extract_stack_strings2;
 
 /// The function to call to analyze a file.
 pub fn analyze(
@@ -181,12 +181,10 @@ pub fn analyze(
             if results.analysis.enable_tight_strings {
                 // selected_functions = get_fun
             }
-            results.strings.stack_strings = extract_stack_strings2(
-               path_to_sample
-            )?
-            .iter()
-            .map(|x| x.string.clone())
-            .collect::<Vec<_>>();
+            results.strings.stack_strings = extract_stack_strings2(path_to_sample)?
+                .iter()
+                .map(|x| x.string.clone())
+                .collect::<Vec<_>>();
             results.analysis.functions.analyzed_stack_strings =
                 selected_functions.as_ref().cloned().unwrap().len() as i32;
             results.metadata.runtime.stack_strings = get_runtime_diff(_interim);
@@ -343,12 +341,15 @@ pub fn get_signatures(signature_path: &str) -> Result<Vec<String>> {
         paths.push(format!("{}", sigs_path.display()));
     } else if sigs_path.is_dir() {
         debug!("Reading signatures from directory {}", sigs_path.display());
-        for dir_entry in sigs_path.read_dir().expect("Error reading directory.").flatten() {
-            if dir_entry.path().clone().extension().unwrap() == "sig"
-                || dir_entry.path().clone().extension().unwrap() == "pat"
-                || dir_entry.path().clone().extension().unwrap() == "gz"
-            {
-                paths.push(format!("{}", dir_entry.path().display()));
+        for dir_entry in sigs_path
+            .read_dir()
+            .expect("Error reading directory.")
+            .flatten()
+        {
+            if let Some(ext) = dir_entry.path().clone().extension() {
+                if ["sig", "pat", "gz"].contains(&ext.to_str().unwrap()) {
+                    paths.push(format!("{}", dir_entry.path().display()));
+                }
             }
         }
     }
