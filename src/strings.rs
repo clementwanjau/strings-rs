@@ -2,13 +2,14 @@ use crate::{
     results::log_result,
     stack_strings::CallContext,
     utils::{extract_strings, get_pointer_size},
-    {StaticString, StringEncoding, StringOptions, TightString, Verbosity},
+    {StringOptions, TightString, Verbosity},
 };
 use lazy_static::lazy_static;
 use log::{debug, info, trace};
 use regex::Regex;
 use std::collections::HashMap;
 use vivisect::workspace::VivWorkspace;
+use crate::results::StaticString;
 
 pub const SLICE_SIZE: usize = 4096;
 pub const ASCII_BYTES: &str = " !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}\\~\t";
@@ -62,25 +63,24 @@ pub fn extract_ascii_unicode_strings(buffer: Vec<u8>, n: i32) -> Vec<StaticStrin
 /// :type n: int
 /// :rtype: Sequence[StaticString]
 pub fn extract_ascii_strings(buffer: &str, n: i32) -> Vec<StaticString> {
-    if buffer.len() == 0 {
+    if buffer.is_empty() {
         return vec![];
     }
     let first_char = buffer.chars().next().unwrap();
     if REPEATS.contains(&first_char.to_string()) && buffer_filled_with(buffer, first_char) {
         return vec![];
     }
-    let r;
-    if n == 4 {
-        r = Some(get_ascii_regex());
+    let r= if n == 4 {
+        Some(get_ascii_regex())
     } else {
-        r = Some(Regex::new(format!("([{}]{{{},}})", ASCII_BYTES, n).as_str()).unwrap());
-    }
+        Some(Regex::new(format!("([{}]{{{},}})", ASCII_BYTES, n).as_str()).unwrap())
+    };
     let mut static_strings = Vec::new();
     for _match in r.unwrap().find_iter(buffer) {
         static_strings.push(StaticString {
             string: _match.as_str().to_string(),
-            offset: _match.start() as i32,
-            encoding: StringEncoding::ASCII,
+            offset: _match.start() as u64,
+            encoding: "ASCII".to_string(),
         });
     }
     static_strings
@@ -94,25 +94,24 @@ pub fn extract_ascii_strings(buffer: &str, n: i32) -> Vec<StaticString> {
 /// :rtype: Sequence[StaticString]
 
 pub fn extract_unicode_string(buffer: &str, n: i32) -> Vec<StaticString> {
-    if buffer.len() == 0 {
+    if buffer.is_empty() {
         return vec![];
     }
     let first_char = buffer.chars().next().unwrap();
     if REPEATS.contains(&first_char.to_string()) && buffer_filled_with(buffer, first_char) {
         return vec![];
     }
-    let r;
-    if n == 4 {
-        r = Some(get_unicode_regex());
+    let r= if n == 4 {
+        Some(get_unicode_regex())
     } else {
-        r = Some(Regex::new(format!("((?:[{}]\x00){{{},}})", ASCII_BYTES, n).as_str()).unwrap());
-    }
+        Some(Regex::new(format!("((?:[{}]\x00){{{},}})", ASCII_BYTES, n).as_str()).unwrap())
+    };
     let mut static_strings = Vec::new();
     for _match in r.unwrap().find_iter(buffer) {
         static_strings.push(StaticString {
             string: _match.as_str().to_string(),
-            offset: _match.start() as i32,
-            encoding: StringEncoding::UTF16LE,
+            offset: _match.start() as u64,
+            encoding: "UTF16LE".to_string(),
         });
     }
     static_strings
@@ -160,7 +159,7 @@ pub fn extract_tight_strings(
         debug!("Extracting tightstrings from function {:#0x}", fva);
         let ctxs: Vec<CallContext> =
             extract_tight_string_contexts(workspace.clone(), fva, min_length, tloops);
-        for (_, ctx) in ctxs.iter().enumerate() {
+        for ctx in ctxs.iter() {
             trace!(
                 "Extracting tightstring at checkpoint: {:#0x} stacksize: {:#0x}",
                 ctx.pc,
@@ -174,16 +173,16 @@ pub fn extract_tight_strings(
             )
             .unwrap()
             {
-                let frame_offset = (ctx.init_sp - ctx.sp)
+                let frame_offset = (ctx.init_sp - ctx.sp) as u64
                     - s.offset
-                    - get_pointer_size(workspace.clone()).unwrap();
+                    - get_pointer_size(workspace.clone()).unwrap() as u64;
                 let ts = TightString {
-                    function: fva,
+                    function: fva as u64,
                     string: s.string.clone(),
-                    encoding: s.encoding,
-                    program_counter: ctx.pc,
-                    stack_pointer: ctx.sp,
-                    original_stack_pointer: ctx.init_sp,
+                    encoding: s.encoding.to_string(),
+                    program_counter: ctx.pc as u64,
+                    stack_pointer: ctx.sp as u64,
+                    original_stack_pointer: ctx.init_sp as u64,
                     offset: s.offset,
                     frame_offset,
                 };

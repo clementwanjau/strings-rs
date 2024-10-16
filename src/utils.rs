@@ -10,6 +10,8 @@ use lazy_static::lazy_static;
 use log::{debug, info, trace, warn};
 use regex::Regex;
 use std::{collections::HashMap, ops::Sub};
+use std::fs::remove_file;
+use std::path::Path;
 use vivisect::{
     emulator::{Emulator, GenericEmulator, WorkspaceEmulator},
     envi::memory::Memory,
@@ -128,6 +130,17 @@ pub fn dump_stack(mut emu: GenericEmulator) -> String {
     }
     trace!("{}", stack_str.as_str());
     stack_str
+}
+
+
+/// remove temp files that could have got created
+pub fn cleanup_files<P: AsRef<Path>>(files: Vec<P>) {
+    info!("Cleaning up temporary files");
+    for f in files {
+        if f.as_ref().exists() {
+            remove_file(f).unwrap_or_default()
+        }
+    }
 }
 
 pub fn get_stack_value(mut emu: GenericEmulator, offset: i32) -> i32 {

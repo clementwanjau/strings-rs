@@ -18,6 +18,12 @@ pub enum FlossError {
     IOError(#[from] std::io::Error),
     #[error("{0}")]
     GoblinError(#[from] goblin::error::Error),
+    #[error("{0}")]
+    CapstoneError(#[from] capstone::Error),
+    #[error("{0}")]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
+    #[error("{0}")]
+    SerdeJsonError(#[from] serde_json::Error),
     #[error("Could not find the stack segment")]
     StackSegmentNotFound,
     #[error("Could not find the signatures directory")]

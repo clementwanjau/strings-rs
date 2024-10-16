@@ -1,7 +1,7 @@
 use std::os::unix::prelude::FileExt;
 use capstone::{Capstone, RegId};
 use capstone::arch::ArchOperand;
-use capstone::prelude::BuildsCapstone;
+use capstone::prelude::{BuildsCapstone};
 use crate::{
     error::{FlossError, Result},
     results::{StackString},
@@ -14,7 +14,6 @@ use vivisect::{
     workspace::VivWorkspace,
 };
 use vivutils::{emulator_drivers::FullCoverageEmulatorDriver, function::Function};
-use crate::results::StringEncoding;
 
 pub const MAX_STACK_SIZE: i32 = 0x10000;
 pub const MIN_NUMBER_OF_MOVS: i32 = 5;
@@ -147,75 +146,152 @@ pub fn get_basic_block_ends(mut vw: VivWorkspace) -> Vec<i32> {
 }
 
 /// Extract stack strings from a function using emulation.
-pub fn extract_stack_strings(file_path: &str) -> Vec<StackString> {
+pub fn extract_stack_strings(file_path: &str) -> Result<Vec<StackString>> {
     let mut stack_strings = Vec::new();
     // Open a goblin reader for the file
-    let bytes = std::fs::read(file_path).unwrap();
-    if let Ok(elf) = goblin::elf::Elf::parse(&bytes) {
-        let arch  = match elf.header.e_machine {
-            goblin::elf::header::EM_386 => capstone::arch::x86::ArchMode::Mode32,
-            goblin::elf::header::EM_X86_64 => capstone::arch::x86::ArchMode::Mode64,
-            _ => panic!("Unsupported architecture"),
-        };
-        let disasm = Capstone::new()
-            .x86()
-            .mode(arch)
-            .detail(true).build().unwrap();
-        let pc = elf.header.e_entry;
-        let instructions = disasm.disasm_all(&bytes, pc).unwrap();
-        debug!("Found {} instructions", instructions.len());
-        for instruction in instructions.iter() {
-            // Analyze instruction mnemonics and operands
-            let mut potential_string = false;
-            let mut string_register = "";
-            let detail = disasm.insn_detail(instruction).unwrap();
-            let ops = detail.arch_detail().operands();
-            match instruction.mnemonic() {
-                Some("mov") | Some("push") => {
-                    // Check if operand is a register
-                    string_register = match reg_names(&disasm, detail.regs_read()).as_str() {
-                        "esp" | "rsp" => {
-                            "stack_pointer"
-                        }
-                        _ => {
-                            continue
-                        }
-                    };
-                    potential_string = true;
+    let bytes = std::fs::read(file_path)?;
+    let capstone_builder = Capstone::new();
+    match goblin::Object::parse(&bytes)? {
+        goblin::Object::Elf(elf) => {
+            info!("ELF file detected");
+            let arch  = match elf.header.e_machine {
+                goblin::elf::header::EM_386 => capstone::arch::x86::ArchMode::Mode32,
+                goblin::elf::header::EM_X86_64 => capstone::arch::x86::ArchMode::Mode64,
+                _ => panic!("Unsupported architecture"),
+            };
+            let disasm = capstone_builder
+                .x86()
+                .mode(arch)
+                .detail(true).build()?;
+            let pc = elf.header.e_entry;
+            let instructions = disasm.disasm_all(&bytes, pc)?;
+            debug!("Found {} instructions", instructions.len());
+            for instruction in instructions.iter() {
+                // Analyze instruction mnemonics and operands
+                let mut potential_string = false;
+                let mut string_register = "";
+                let detail = disasm.insn_detail(instruction)?;
+                let ops = detail.arch_detail().operands();
+                match instruction.mnemonic() {
+                    Some("mov") | Some("push") => {
+                        // Check if operand is a register
+                        string_register = match reg_names(&disasm, detail.regs_read()).as_str() {
+                            "esp" | "rsp" => {
+                                "stack_pointer"
+                            }
+                            _ => {
+                                panic!("Unsupported register");
+                            }
+                        };
+                        potential_string = true;
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-            if potential_string {
-                if let ArchOperand::X86Operand(operand) = &ops[1] {
-                    if let capstone::arch::x86::X86OperandType::Imm(imm) = operand.op_type {
-                        // Check if immediate value is a null-terminated string address
-                        let string_addr = (pc + instruction.address() + imm as u64) as usize;
-                        if is_null_terminated_string(&bytes[string_addr..]).unwrap() {
-                            println!("Potential stack string (register: {}, address: 0x{:x?}):", string_register, string_addr);
-                            // Print the string at the address (up to a certain limit to avoid garbage)
-                            let string_chars = &bytes[string_addr..]
-                                .iter()
-                                .take_while(|byte| **byte != 0)
-                                .map(|byte| *byte as char)
-                                .collect::<String>();
-                            let stack_string = StackString {
-                                function: pc as i32,
-                                string: string_chars.clone(),
-                                encoding: StringEncoding::UTF16LE,
-                                program_counter: pc as i32,
-                                stack_pointer: string_addr as i32,
-                                original_stack_pointer: 0,
-                                offset: 0,
-                                frame_offset: 0,
-                            };
-                            stack_strings.push(stack_string);
+                if potential_string {
+                    if let ArchOperand::X86Operand(operand) = &ops[1] {
+                        if let capstone::arch::x86::X86OperandType::Imm(imm) = operand.op_type {
+                            // Check if immediate value is a null-terminated string address
+                            let string_addr = (pc + instruction.address() + imm as u64) as usize;
+                            if is_null_terminated_string(&bytes[string_addr..]).unwrap() {
+                                println!("Potential stack string (register: {}, address: 0x{:x?}):", string_register, string_addr);
+                                // Print the string at the address (up to a certain limit to avoid garbage)
+                                let string_chars = &bytes[string_addr..]
+                                    .iter()
+                                    .take_while(|byte| **byte != 0)
+                                    .map(|byte| *byte as char)
+                                    .collect::<String>();
+                                let stack_string = StackString {
+                                    function: pc,
+                                    string: string_chars.clone(),
+                                    encoding: "UTF16LE".to_string(),
+                                    program_counter: pc,
+                                    stack_pointer: string_addr as u64,
+                                    original_stack_pointer: 0,
+                                    offset: 0,
+                                    frame_offset: 0,
+                                };
+                                stack_strings.push(stack_string);
+                            }
                         }
                     }
                 }
             }
+            Ok(stack_strings)
+        },
+        goblin::Object::PE(pe) => {
+            info!("Windows PE file detected");
+            let arch = match pe.header.coff_header.machine {
+                goblin::pe::header::COFF_MACHINE_X86 => capstone::arch::x86::ArchMode::Mode32,
+                goblin::pe::header::COFF_MACHINE_X86_64 => capstone::arch::x86::ArchMode::Mode64,
+                _ => panic!("Unsupported architecture"),
+            };
+            println!("Arch: {:?}", arch);
+            let disasm = capstone_builder
+                .x86()
+                .mode(arch)
+                .detail(true)
+                .build()?;
+            let pc = pe.entry as u64;
+            let instructions = disasm.disasm_all(&bytes, pc)?;
+            info!("Found {} instructions", instructions.len());
+            for instruction in instructions.iter() {
+                info!("Analyzing instruction: {:?}", instruction);
+                // Analyze instruction mnemonics and operands
+                let mut potential_string = false;
+                let mut string_register = "";
+                let detail = disasm.insn_detail(instruction)?;
+                let ops = detail.arch_detail().operands();
+                match instruction.mnemonic() {
+                    Some("mov") | Some("push") => {
+                        info!("MOV or PUSH instruction detected");
+                        // Check if operand is a register
+                        string_register = match reg_names(&disasm, detail.regs_read()).as_str() {
+                            "esp" | "rsp" => {
+                                "stack_pointer"
+                            }
+                            _ => {
+                                panic!("Unsupported register");
+                            }
+                        };
+                        potential_string = true;
+                    }
+                    _ => {}
+                }
+                if potential_string {
+                    if let ArchOperand::X86Operand(operand) = &ops[1] {
+                        if let capstone::arch::x86::X86OperandType::Imm(imm) = operand.op_type {
+                            // Check if immediate value is a null-terminated string address
+                            let string_addr = (pc + instruction.address() + imm as u64) as usize;
+                            if is_null_terminated_string(&bytes[string_addr..]).unwrap() {
+                                println!("Potential stack string (register: {}, address: 0x{:x?}):", string_register, string_addr);
+                                // Print the string at the address (up to a certain limit to avoid garbage)
+                                let string_chars = &bytes[string_addr..]
+                                    .iter()
+                                    .take_while(|byte| **byte != 0)
+                                    .map(|byte| *byte as char)
+                                    .collect::<String>();
+                                let stack_string = StackString {
+                                    function: pc,
+                                    string: string_chars.clone(),
+                                    encoding: "UTF16LE".to_string(),
+                                    program_counter: pc,
+                                    stack_pointer: string_addr as u64,
+                                    original_stack_pointer: 0,
+                                    offset: 0,
+                                    frame_offset: 0,
+                                };
+                                stack_strings.push(stack_string);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(stack_strings)
+        }
+        _=> {
+            Err(FlossError::UnexpectedArchitecture(0))
         }
     }
-    stack_strings
 }
 
 pub fn extract_stack_strings2(file_path: &str) -> Result<Vec<StackString>> {
@@ -224,7 +300,7 @@ pub fn extract_stack_strings2(file_path: &str) -> Result<Vec<StackString>> {
     let bytes = std::fs::read(file_path)?;
     let stack_base = match goblin::Object::parse(&bytes)? {
         goblin::Object::Elf(elf_file) => {
-            let stack_segment = elf_file.program_headers.iter().find(|ph| (*ph).p_type == goblin::elf::program_header::PT_LOAD && (*ph).p_flags & goblin::elf::program_header::PF_X == goblin::elf::program_header::PF_X);
+            let stack_segment = elf_file.program_headers.iter().find(|ph| ph.p_type == goblin::elf::program_header::PT_LOAD && (ph.p_flags & goblin::elf::program_header::PF_X) == goblin::elf::program_header::PF_X);
             if let Some(stack_segment) = stack_segment {
                 stack_segment.p_vaddr + stack_segment.p_memsz
             } else {
@@ -232,7 +308,11 @@ pub fn extract_stack_strings2(file_path: &str) -> Result<Vec<StackString>> {
             }
         },
         goblin::Object::PE(pe_file) => {
-            let stack_section = pe_file.sections.iter().find(|section| section.name().unwrap_or_default() == ".text");
+            info!("{} sections", pe_file.sections.len());
+            let stack_section = pe_file.sections.iter().map(|x| {
+                info!("Section: {}", x.name().unwrap_or_default());
+                x
+            }).find(|section| section.name().unwrap_or_default() == ".text");
             if let Some(stack_section) = stack_section {
                 (pe_file.image_base + stack_section.virtual_address as usize + stack_section.virtual_size as usize) as u64
             } else {
@@ -253,14 +333,14 @@ pub fn extract_stack_strings2(file_path: &str) -> Result<Vec<StackString>> {
         for byte in buffer.iter().take_while(|b| **b != 0) {
             string.push(*byte as char);
         }
-        println!("Potential stack string at 0x{:x?}: {}", stack_pointer, string);
+        debug!("Potential stack string at 0x{:x?}: {}", stack_pointer, string);
         if !string.is_empty() && !string.starts_with("PE") && !string.starts_with("MZ") {
             stack_strings.push(StackString {
                 function: 0,
                 string: string.clone(),
-                encoding: StringEncoding::ASCII,
+                encoding: "ASCII".to_string(),
                 program_counter: 0,
-                stack_pointer: stack_pointer as i32,
+                stack_pointer,
                 original_stack_pointer: 0,
                 offset: 0,
                 frame_offset: 0,

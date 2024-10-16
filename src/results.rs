@@ -2,56 +2,63 @@
 use crate::sanitize::sanitize;
 use chrono::{DateTime, Local};
 use log::{debug, info, warn};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::from_str;
-use std::{collections::HashMap, fs, str::from_utf8};
+use std::{collections::HashMap, fmt, fs, str::from_utf8};
+use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq)]
-pub enum StringEncoding {
-    UTF16LE,
-    #[default]
-    ASCII,
-}
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct StackString {
     /// the address of the function from which the stackstring was extracted
-    pub(crate) function: i32,
+    pub function: u64,
     /// the extracted string
     pub string: String,
-    pub(crate) encoding: StringEncoding,
+    pub encoding: String,
     /// the program counter at the moment the string was extracted
-    pub(crate) program_counter: i32,
+    pub program_counter: u64,
     /// the stack counter at the moment the string was extracted
-    pub(crate) stack_pointer: i32,
+    pub stack_pointer: u64,
     /// the initial stack counter when the function was entered
-    pub(crate) original_stack_pointer: i32,
+    pub original_stack_pointer: u64,
     /// the offset into the stack from at which the stack string was found
-    pub(crate) offset: i32,
+    pub offset: u64,
     /// the offset from the function frame at which the stack string was found
-    pub(crate) frame_offset: i32,
+    pub frame_offset: u64,
 }
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Default)]
+impl Display for StackString {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", self.string)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct TightString {
     /// the address of the function from which the stackstring was extracted
-    pub(crate) function: i32,
+    pub function: u64,
     /// the extracted string
-    pub(crate) string: String,
-    pub(crate) encoding: StringEncoding,
+    pub string: String,
+    pub encoding: String,
     /// the program counter at the moment the string was extracted
-    pub(crate) program_counter: i32,
+    pub program_counter: u64,
     /// the stack counter at the moment the string was extracted
-    pub(crate) stack_pointer: i32,
+    pub stack_pointer: u64,
     /// the initial stack counter when the function was entered
-    pub(crate) original_stack_pointer: i32,
+    pub original_stack_pointer: u64,
     /// the offset into the stack from at which the stack string was found
-    pub(crate) offset: i32,
+    pub offset: u64,
     /// the offset from the function frame at which the stack string was found
-    pub(crate) frame_offset: i32,
+    pub frame_offset: u64,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq)]
+impl Display for TightString {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", self.string)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub enum AddressType {
     STACK,
     #[default]
@@ -59,53 +66,77 @@ pub enum AddressType {
     HEAP,
 }
 
+impl Display for AddressType {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 /// A decoding string and details about where it was found.
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct DecodedString {
     /// address of the string in memory
-    address: i32,
+    pub address: u64,
     /// type of the address of the string in memory
-    address_type: AddressType,
+    pub address_type: AddressType,
     /// the decoded string
     pub string: String,
     /// the string encoding, like ASCII or unicode
-    encoding: StringEncoding,
+    pub encoding: String,
     /// the address at which the decoding routine is called
-    decoded_at: i32,
+    pub decoded_at: u64,
     /// the address of the decoding routine
-    decoding_routine: i32,
+    pub decoding_routine: u64,
 }
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Default)]
+impl Display for DecodedString {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", self.string)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct StaticString {
     pub string: String,
-    pub offset: i32,
-    pub encoding: StringEncoding,
+    pub offset: u64,
+    pub encoding: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+impl Display for StaticString {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", self.string)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Runtime {
     pub start_date: String,
-    pub total: i64,
-    pub vivisect: i64,
-    pub find_features: i64,
-    pub static_strings: i64,
-    pub stack_strings: i64,
-    pub decoded_strings: i64,
-    pub tight_strings: i64,
+    pub total: f32,
+    pub vivisect: f32,
+    pub find_features: f32,
+    pub static_strings: f32,
+    pub stack_strings: f32,
+    pub decoded_strings: f32,
+    pub tight_strings: f32,
 }
 
-#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct Functions {
     pub discovered: i32,
     pub library: i32,
     pub analyzed_stack_strings: i32,
     pub analyzed_tight_strings: i32,
     pub analyzed_decoded_strings: i32,
-    pub decoding_function_scores: HashMap<i32, f32>,
+    pub decoding_function_scores: HashMap<String, FunctionScore>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
+pub struct FunctionScore {
+    pub score: f32,
+    pub xrefs_to: i32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Analysis {
     pub(crate) enable_static_strings: bool,
     pub(crate) enable_stack_strings: bool,
@@ -114,18 +145,14 @@ pub struct Analysis {
     pub(crate) functions: Functions,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Metadata {
     pub file_path: String,
     pub version: String,
-    pub imagebase: i32,
+    pub imagebase: u64,
     pub min_length: i32,
     pub runtime: Runtime,
 }
-
-//  Metadata::new("", 2);
-// let b = Metadata::default();
-// b.new();
 
 impl Metadata {
     pub fn new(file_path: &str, min_len: i32) -> Self {
@@ -136,24 +163,18 @@ impl Metadata {
             min_length: min_len,
             runtime: Runtime {
                 start_date: Local::now().to_rfc3339(),
-                total: 0,
-                vivisect: 0,
-                find_features: 0,
-                static_strings: 0,
-                stack_strings: 0,
-                decoded_strings: 0,
-                tight_strings: 0,
+                ..Default::default()
             },
         }
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Strings {
-    pub stack_strings: Vec<String>,
+    pub stack_strings: Vec<StackString>,
     pub tight_strings: Vec<TightString>,
-    pub decoded_strings: Vec<String>,
-    pub static_strings: Vec<String>,
+    pub decoded_strings: Vec<DecodedString>,
+    pub static_strings: Vec<StaticString>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
@@ -203,7 +224,7 @@ impl StringOptions {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResultDocument {
     pub metadata: Metadata,
     pub analysis: Analysis,
@@ -267,7 +288,7 @@ pub fn log_result(decoded_string: StringOptions, verbosity: Verbosity) {
 pub fn load(
     sample: &str,
     analysis: Analysis,
-    functions: Vec<i32>,
+    functions: Vec<u64>,
     min_length: i32,
 ) -> ResultDocument {
     debug!("Loading results document: {}", sample);
@@ -308,11 +329,11 @@ pub fn check_set_string_types(mut results: ResultDocument, wanted_analysis: Anal
     }
 }
 
-pub fn filter_functions(mut results: ResultDocument, functions: Vec<i32>) {
+pub fn filter_functions(mut results: ResultDocument, functions: Vec<u64>) {
     let mut filtered_scores = HashMap::new();
     for fva in functions.clone() {
-        *filtered_scores.get_mut(&fva).unwrap() =
-            results.analysis.functions.decoding_function_scores[&fva];
+        *filtered_scores.get_mut(&fva.to_string()).unwrap() =
+            results.analysis.functions.decoding_function_scores[&fva.to_string()].clone();
     }
     results.analysis.functions.decoding_function_scores = filtered_scores;
     // results.strings.stack_strings = results.strings.stack_strings.iter().filter(|f| functions.contains(&f.function)).map(|stack_string| stack_string.clone()).collect::<Vec<_>>();
@@ -334,13 +355,13 @@ pub fn filter_string_len(mut results: ResultDocument, min_len: i32) {
         .strings
         .stack_strings
         .iter()
-        .filter(|stack_string| stack_string.len() >= min_len as usize).cloned()
+        .filter(|stack_string| stack_string.string.len() >= min_len as usize).cloned()
         .collect::<Vec<_>>();
     results.strings.static_strings = results
         .strings
         .static_strings
         .iter()
-        .filter(|static_string| static_string.len() >= min_len as usize).cloned()
+        .filter(|static_string| static_string.string.len() >= min_len as usize).cloned()
         .collect::<Vec<_>>();
     results.strings.tight_strings = results
         .strings
@@ -352,6 +373,6 @@ pub fn filter_string_len(mut results: ResultDocument, min_len: i32) {
         .strings
         .decoded_strings
         .iter()
-        .filter(|decoded_string| decoded_string.len() >= min_len as usize).cloned()
+        .filter(|decoded_string| decoded_string.string.len() >= min_len as usize).cloned()
         .collect::<Vec<_>>();
 }
